@@ -627,10 +627,6 @@ class SupportController {
             });
         }
     }
-}
-
-module.exports = new SupportController();
-
 
     /**
      * Get flagged reviews (Support staff)
@@ -638,39 +634,39 @@ module.exports = new SupportController();
      * Requires support or admin role
      */
     async getFlaggedReviews(req, res) {
-    try {
-        const Review = require('../models/Review');
-        const { page = 1, limit = 20 } = req.query;
+        try {
+            const Review = require('../models/Review');
+            const { page = 1, limit = 20 } = req.query;
 
-        const query = { flagged: true };
-        const skip = (page - 1) * limit;
+            const query = { flagged: true };
+            const skip = (page - 1) * limit;
 
-        const reviews = await Review.find(query)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(parseInt(limit));
+            const reviews = await Review.find(query)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit));
 
-        const total = await Review.countDocuments(query);
+            const total = await Review.countDocuments(query);
 
-        res.json({
-            success: true,
-            data: reviews,
-            pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
-                total,
-                pages: Math.ceil(total / limit)
-            }
-        });
-    } catch (error) {
-        console.error('Get flagged reviews error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error fetching flagged reviews',
-            message: error.message
-        });
+            res.json({
+                success: true,
+                data: reviews,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total,
+                    pages: Math.ceil(total / limit)
+                }
+            });
+        } catch (error) {
+            console.error('Get flagged reviews error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error fetching flagged reviews',
+                message: error.message
+            });
+        }
     }
-}
 
     /**
      * Moderate review (Support staff)
@@ -678,71 +674,71 @@ module.exports = new SupportController();
      * Requires support or admin role
      */
     async moderateReview(req, res) {
-    try {
-        const Review = require('../models/Review');
-        const { reviewId } = req.params;
-        const { action, moderationNote } = req.body;
+        try {
+            const Review = require('../models/Review');
+            const { reviewId } = req.params;
+            const { action, moderationNote } = req.body;
 
-        // Validate action
-        const validActions = ['approve', 'reject', 'hide'];
-        if (!validActions.includes(action)) {
-            return res.status(400).json({
+            // Validate action
+            const validActions = ['approve', 'reject', 'hide'];
+            if (!validActions.includes(action)) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Invalid action. Must be one of: ${validActions.join(', ')}`
+                });
+            }
+
+            const review = await Review.findById(reviewId);
+
+            if (!review) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Review not found'
+                });
+            }
+
+            // Update review based on action
+            if (action === 'approve') {
+                review.status = 'approved';
+                review.flagged = false;
+            } else if (action === 'reject') {
+                review.status = 'rejected';
+            } else if (action === 'hide') {
+                review.status = 'rejected';
+                review.flagged = true;
+            }
+
+            review.moderatedBy = req.user.userId;
+            review.moderatedAt = Date.now();
+            review.moderationNote = moderationNote || `Review ${action}ed by support staff`;
+
+            await review.save();
+
+            // Notify review author if rejected
+            if (action === 'reject' || action === 'hide') {
+                await NotificationService.createNotification(
+                    review.userId,
+                    'system',
+                    'Review Moderated',
+                    `Your review has been ${action}ed by our moderation team`,
+                    { reviewId: review._id, reason: moderationNote }
+                );
+            }
+
+            res.json({
+                success: true,
+                message: `Review ${action}ed successfully`,
+                data: review
+            });
+        } catch (error) {
+            console.error('Moderate review error:', error);
+            res.status(500).json({
                 success: false,
-                error: `Invalid action. Must be one of: ${validActions.join(', ')}`
+                error: 'Error moderating review',
+                message: error.message
             });
         }
-
-        const review = await Review.findById(reviewId);
-
-        if (!review) {
-            return res.status(404).json({
-                success: false,
-                error: 'Review not found'
-            });
-        }
-
-        // Update review based on action
-        if (action === 'approve') {
-            review.status = 'approved';
-            review.flagged = false;
-        } else if (action === 'reject') {
-            review.status = 'rejected';
-        } else if (action === 'hide') {
-            review.status = 'rejected';
-            review.flagged = true;
-        }
-
-        review.moderatedBy = req.user.userId;
-        review.moderatedAt = Date.now();
-        review.moderationNote = moderationNote || `Review ${action}ed by support staff`;
-
-        await review.save();
-
-        // Notify review author if rejected
-        if (action === 'reject' || action === 'hide') {
-            await NotificationService.createNotification(
-                review.userId,
-                'system',
-                'Review Moderated',
-                `Your review has been ${action}ed by our moderation team`,
-                { reviewId: review._id, reason: moderationNote }
-            );
-        }
-
-        res.json({
-            success: true,
-            message: `Review ${action}ed successfully`,
-            data: review
-        });
-    } catch (error) {
-        console.error('Moderate review error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error moderating review',
-            message: error.message
-        });
     }
-}
 
     /**
      * Flag review (Customer)
@@ -750,80 +746,80 @@ module.exports = new SupportController();
      * Requires authentication
      */
     async flagReview(req, res) {
-    try {
-        const Review = require('../models/Review');
-        const { reviewId } = req.params;
-        const { reason } = req.body;
+        try {
+            const Review = require('../models/Review');
+            const { reviewId } = req.params;
+            const { reason } = req.body;
 
-        if (!reason) {
-            return res.status(400).json({
-                success: false,
-                error: 'Flag reason is required'
-            });
-        }
-
-        const review = await Review.findById(reviewId);
-
-        if (!review) {
-            return res.status(404).json({
-                success: false,
-                error: 'Review not found'
-            });
-        }
-
-        // Check if user already flagged this review
-        const alreadyFlagged = review.flaggedBy.some(
-            flag => flag.userId === req.user.userId
-        );
-
-        if (alreadyFlagged) {
-            return res.status(400).json({
-                success: false,
-                error: 'You have already flagged this review'
-            });
-        }
-
-        // Add flag
-        review.flaggedBy.push({
-            userId: req.user.userId,
-            reason,
-            timestamp: Date.now()
-        });
-
-        // Mark as flagged if multiple flags
-        if (review.flaggedBy.length >= 3) {
-            review.flagged = true;
-            review.status = 'flagged';
-
-            // Notify support staff
-            const supportStaff = await AuthUser.find({ role: 'support', isActive: true });
-            for (const staff of supportStaff) {
-                await NotificationService.createNotification(
-                    staff._id,
-                    'support',
-                    'Review Flagged',
-                    `A review has been flagged multiple times and requires moderation`,
-                    { reviewId: review._id, flagCount: review.flaggedBy.length }
-                );
+            if (!reason) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Flag reason is required'
+                });
             }
+
+            const review = await Review.findById(reviewId);
+
+            if (!review) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Review not found'
+                });
+            }
+
+            // Check if user already flagged this review
+            const alreadyFlagged = review.flaggedBy.some(
+                flag => flag.userId === req.user.userId
+            );
+
+            if (alreadyFlagged) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'You have already flagged this review'
+                });
+            }
+
+            // Add flag
+            review.flaggedBy.push({
+                userId: req.user.userId,
+                reason,
+                timestamp: Date.now()
+            });
+
+            // Mark as flagged if multiple flags
+            if (review.flaggedBy.length >= 3) {
+                review.flagged = true;
+                review.status = 'flagged';
+
+                // Notify support staff
+                const supportStaff = await AuthUser.find({ role: 'support', isActive: true });
+                for (const staff of supportStaff) {
+                    await NotificationService.createNotification(
+                        staff._id,
+                        'support',
+                        'Review Flagged',
+                        `A review has been flagged multiple times and requires moderation`,
+                        { reviewId: review._id, flagCount: review.flaggedBy.length }
+                    );
+                }
+            }
+
+            await review.save();
+
+            res.json({
+                success: true,
+                message: 'Review flagged successfully',
+                data: review
+            });
+        } catch (error) {
+            console.error('Flag review error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error flagging review',
+                message: error.message
+            });
         }
-
-        await review.save();
-
-        res.json({
-            success: true,
-            message: 'Review flagged successfully',
-            data: review
-        });
-    } catch (error) {
-        console.error('Flag review error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error flagging review',
-            message: error.message
-        });
     }
-}
 }
 
 module.exports = new SupportController();
