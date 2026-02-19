@@ -451,9 +451,6 @@ class AuthController {
             });
         }
     }
-}
-
-module.exports = new AuthController();
 
     /**
      * Refresh JWT token
@@ -461,70 +458,70 @@ module.exports = new AuthController();
      * Requires authentication
      */
     async refreshToken(req, res) {
-    try {
-        // Get current user
-        const user = await AuthUser.findById(req.user.userId);
+        try {
+            // Get current user
+            const user = await AuthUser.findById(req.user.userId);
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: 'User not found'
-            });
-        }
-
-        if (!user.isActive) {
-            return res.status(401).json({
-                success: false,
-                error: 'Account is inactive'
-            });
-        }
-
-        // Blacklist old token
-        const oldToken = req.token;
-        const decoded = jwt.decode(oldToken);
-
-        if (decoded && decoded.exp) {
-            await TokenBlacklist.create({
-                token: oldToken,
-                userId: user._id,
-                expiresAt: new Date(decoded.exp * 1000),
-                reason: 'token_refresh'
-            });
-        }
-
-        // Generate new token
-        const newToken = generateToken(user);
-
-        // Log token refresh
-        await AuditService.logAdminAction(
-            user._id.toString(),
-            user.username,
-            'token_refresh',
-            req,
-            { oldTokenExp: decoded?.exp }
-        );
-
-        res.status(200).json({
-            success: true,
-            message: 'Token refreshed successfully',
-            token: newToken,
-            data: {
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                role: user.role,
-                permissions: user.permissions
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'User not found'
+                });
             }
-        });
-    } catch (error) {
-        console.error('Refresh token error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error refreshing token',
-            message: error.message
-        });
+
+            if (!user.isActive) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Account is inactive'
+                });
+            }
+
+            // Blacklist old token
+            const oldToken = req.token;
+            const decoded = jwt.decode(oldToken);
+
+            if (decoded && decoded.exp) {
+                await TokenBlacklist.create({
+                    token: oldToken,
+                    userId: user._id,
+                    expiresAt: new Date(decoded.exp * 1000),
+                    reason: 'token_refresh'
+                });
+            }
+
+            // Generate new token
+            const newToken = generateToken(user);
+
+            // Log token refresh
+            await AuditService.logAdminAction(
+                user._id.toString(),
+                user.username,
+                'token_refresh',
+                req,
+                { oldTokenExp: decoded?.exp }
+            );
+
+            res.status(200).json({
+                success: true,
+                message: 'Token refreshed successfully',
+                token: newToken,
+                data: {
+                    id: user._id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    permissions: user.permissions
+                }
+            });
+        } catch (error) {
+            console.error('Refresh token error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error refreshing token',
+                message: error.message
+            });
+        }
     }
-}
 }
 
 module.exports = new AuthController();
