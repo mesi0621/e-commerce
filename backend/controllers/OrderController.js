@@ -324,33 +324,6 @@ class OrderController {
             });
         }
     }
-                return res.status(404).json({
-        success: false,
-        error: 'Order not found'
-    });
-            }
-
-// Check if user owns the order or is admin
-if (order.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
-    return res.status(403).json({
-        success: false,
-        error: 'Access denied'
-    });
-}
-
-res.json({
-    success: true,
-    data: order
-});
-        } catch (error) {
-    console.error('Get order error:', error);
-    res.status(500).json({
-        success: false,
-        error: 'Error fetching order',
-        message: error.message
-    });
-}
-    }
 
     /**
      * Cancel order
@@ -358,77 +331,77 @@ res.json({
      * Requires authentication
      */
     async cancelOrder(req, res) {
-    try {
-        const { orderId } = req.params;
-        const { reason } = req.body;
+        try {
+            const { orderId } = req.params;
+            const { reason } = req.body;
 
-        const order = await Order.findById(orderId);
+            const order = await Order.findById(orderId);
 
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                error: 'Order not found'
-            });
-        }
-
-        // Check ownership
-        if (order.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                error: 'Access denied'
-            });
-        }
-
-        // Check if order can be cancelled
-        if (['shipped', 'delivered', 'cancelled'].includes(order.orderStatus)) {
-            return res.status(400).json({
-                success: false,
-                error: `Cannot cancel order with status: ${order.orderStatus}`
-            });
-        }
-
-        order.orderStatus = 'cancelled';
-        order.statusHistory.push({
-            status: 'cancelled',
-            timestamp: Date.now(),
-            note: reason || 'Cancelled by customer',
-            updatedBy: req.user.userId
-        });
-
-        await order.save();
-
-        // Restore product stock if payment was completed
-        if (order.paymentStatus === 'completed') {
-            for (const item of order.items) {
-                await Product.findOneAndUpdate(
-                    { id: item.productId },
-                    { $inc: { stock: item.quantity } }
-                );
+            if (!order) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Order not found'
+                });
             }
-            console.log('✅ Stock restored for cancelled order');
-        }
 
-        // Send cancellation email
-        const user = await AuthUser.findById(order.userId);
-        if (user && user.email) {
-            EmailService.sendOrderCancelledEmail(user.email, order, reason)
-                .catch(err => console.error('Error sending cancellation email:', err));
-        }
+            // Check ownership
+            if (order.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Access denied'
+                });
+            }
 
-        res.json({
-            success: true,
-            message: 'Order cancelled successfully',
-            data: order
-        });
-    } catch (error) {
-        console.error('Cancel order error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error cancelling order',
-            message: error.message
-        });
+            // Check if order can be cancelled
+            if (['shipped', 'delivered', 'cancelled'].includes(order.orderStatus)) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Cannot cancel order with status: ${order.orderStatus}`
+                });
+            }
+
+            order.orderStatus = 'cancelled';
+            order.statusHistory.push({
+                status: 'cancelled',
+                timestamp: Date.now(),
+                note: reason || 'Cancelled by customer',
+                updatedBy: req.user.userId
+            });
+
+            await order.save();
+
+            // Restore product stock if payment was completed
+            if (order.paymentStatus === 'completed') {
+                for (const item of order.items) {
+                    await Product.findOneAndUpdate(
+                        { id: item.productId },
+                        { $inc: { stock: item.quantity } }
+                    );
+                }
+                console.log('✅ Stock restored for cancelled order');
+            }
+
+            // Send cancellation email
+            const user = await AuthUser.findById(order.userId);
+            if (user && user.email) {
+                EmailService.sendOrderCancelledEmail(user.email, order, reason)
+                    .catch(err => console.error('Error sending cancellation email:', err));
+            }
+
+            res.json({
+                success: true,
+                message: 'Order cancelled successfully',
+                data: order
+            });
+        } catch (error) {
+            console.error('Cancel order error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error cancelling order',
+                message: error.message
+            });
+        }
     }
-}
 
     /**
      * Confirm payment and complete order - Steps 6-9 of Payment Flow
@@ -442,109 +415,109 @@ res.json({
      * 9. Send confirmation (email/notification)
      */
     async confirmPayment(req, res) {
-    try {
-        const { orderId } = req.params;
-        const { transactionId, paymentGatewayResponse } = req.body;
+        try {
+            const { orderId } = req.params;
+            const { transactionId, paymentGatewayResponse } = req.body;
 
-        console.log('💳 Step 6: Payment confirmation received for order:', orderId);
+            console.log('💳 Step 6: Payment confirmation received for order:', orderId);
 
-        const order = await Order.findById(orderId);
+            const order = await Order.findById(orderId);
 
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                error: 'Order not found'
+            if (!order) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Order not found'
+                });
+            }
+
+            // Check if already processed
+            if (order.paymentStatus === 'completed') {
+                return res.json({
+                    success: true,
+                    message: 'Payment already processed',
+                    data: order
+                });
+            }
+
+            // Step 7: Update order status
+            order.paymentStatus = 'completed';
+            order.orderStatus = 'confirmed';
+            order.paymentDetails = {
+                transactionId: transactionId || `TXN-${Date.now()}`,
+                paymentDate: Date.now(),
+                paymentGatewayResponse
+            };
+            order.statusHistory.push({
+                status: 'confirmed',
+                timestamp: Date.now(),
+                note: 'Payment confirmed, order processing'
             });
-        }
 
-        // Check if already processed
-        if (order.paymentStatus === 'completed') {
-            return res.json({
-                success: true,
-                message: 'Payment already processed',
-                data: order
-            });
-        }
+            await order.save();
 
-        // Step 7: Update order status
-        order.paymentStatus = 'completed';
-        order.orderStatus = 'confirmed';
-        order.paymentDetails = {
-            transactionId: transactionId || `TXN-${Date.now()}`,
-            paymentDate: Date.now(),
-            paymentGatewayResponse
-        };
-        order.statusHistory.push({
-            status: 'confirmed',
-            timestamp: Date.now(),
-            note: 'Payment confirmed, order processing'
-        });
+            console.log('✅ Step 7: Order status updated to confirmed');
 
-        await order.save();
+            // Step 8: Reduce product stock
+            for (const item of order.items) {
+                const product = await Product.findOne({ id: item.productId });
 
-        console.log('✅ Step 7: Order status updated to confirmed');
-
-        // Step 8: Reduce product stock
-        for (const item of order.items) {
-            const product = await Product.findOne({ id: item.productId });
-
-            if (product) {
-                // Check if stock is still available
-                if (product.stock >= item.quantity) {
-                    product.stock -= item.quantity;
-                    await product.save();
-                    console.log(`📦 Reduced stock for product ${item.productId}: ${item.quantity} units`);
-                } else {
-                    console.warn(`⚠️ Warning: Insufficient stock for product ${item.productId}`);
-                    // Log this for manual review but don't fail the order
+                if (product) {
+                    // Check if stock is still available
+                    if (product.stock >= item.quantity) {
+                        product.stock -= item.quantity;
+                        await product.save();
+                        console.log(`📦 Reduced stock for product ${item.productId}: ${item.quantity} units`);
+                    } else {
+                        console.warn(`⚠️ Warning: Insufficient stock for product ${item.productId}`);
+                        // Log this for manual review but don't fail the order
+                    }
                 }
             }
-        }
 
-        console.log('✅ Step 8: Stock reduced for all items');
+            console.log('✅ Step 8: Stock reduced for all items');
 
-        // Step 8.1: Clear cart after successful payment
-        const Cart = require('../models/Cart');
-        const cart = await Cart.findOne({ userId: order.userId });
-        if (cart) {
-            cart.items = [];
-            await cart.save();
-            console.log('🗑️ Cart cleared after payment confirmation');
-        }
-
-        // Step 9: Send confirmation email
-        console.log('📧 Step 9: Sending confirmation to user...');
-        const user = await AuthUser.findById(order.userId);
-        if (user && user.email) {
-            // Send comprehensive notifications to all parties
-            const admin = await AuthUser.findOne({ role: 'admin' });
-            const sellers = await AuthUser.find({ role: 'seller' }); // Get all sellers for now
-
-            if (admin && sellers.length > 0) {
-                await EmailService.sendPurchaseNotifications(order, user, admin, sellers);
-            } else {
-                // Fallback to just customer confirmation if admin/sellers not found
-                console.log('⚠️ Admin or sellers not found, skipping comprehensive notifications');
+            // Step 8.1: Clear cart after successful payment
+            const Cart = require('../models/Cart');
+            const cart = await Cart.findOne({ userId: order.userId });
+            if (cart) {
+                cart.items = [];
+                await cart.save();
+                console.log('🗑️ Cart cleared after payment confirmation');
             }
+
+            // Step 9: Send confirmation email
+            console.log('📧 Step 9: Sending confirmation to user...');
+            const user = await AuthUser.findById(order.userId);
+            if (user && user.email) {
+                // Send comprehensive notifications to all parties
+                const admin = await AuthUser.findOne({ role: 'admin' });
+                const sellers = await AuthUser.find({ role: 'seller' }); // Get all sellers for now
+
+                if (admin && sellers.length > 0) {
+                    await EmailService.sendPurchaseNotifications(order, user, admin, sellers);
+                } else {
+                    // Fallback to just customer confirmation if admin/sellers not found
+                    console.log('⚠️ Admin or sellers not found, skipping comprehensive notifications');
+                }
+            }
+
+            // Send notification
+            await NotificationService.notifyOrderConfirmed(order._id);
+
+            res.json({
+                success: true,
+                message: 'Payment confirmed and order processed successfully',
+                data: order
+            });
+        } catch (error) {
+            console.error('❌ Confirm payment error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error confirming payment',
+                message: error.message
+            });
         }
-
-        // Send notification
-        await NotificationService.notifyOrderConfirmed(order._id);
-
-        res.json({
-            success: true,
-            message: 'Payment confirmed and order processed successfully',
-            data: order
-        });
-    } catch (error) {
-        console.error('❌ Confirm payment error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error confirming payment',
-            message: error.message
-        });
     }
-}
 
     /**
      * Get all orders (Admin only)
@@ -552,42 +525,42 @@ res.json({
      * Requires admin role
      */
     async getAllOrders(req, res) {
-    try {
-        const { page = 1, limit = 50, status, paymentStatus } = req.query;
-        const query = {};
+        try {
+            const { page = 1, limit = 50, status, paymentStatus } = req.query;
+            const query = {};
 
-        if (status) query.orderStatus = status;
-        if (paymentStatus) query.paymentStatus = paymentStatus;
+            if (status) query.orderStatus = status;
+            if (paymentStatus) query.paymentStatus = paymentStatus;
 
-        const skip = (page - 1) * limit;
+            const skip = (page - 1) * limit;
 
-        const orders = await Order.find(query)
-            .populate('userId', 'username email')
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(parseInt(limit));
+            const orders = await Order.find(query)
+                .populate('userId', 'username email')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit));
 
-        const total = await Order.countDocuments(query);
+            const total = await Order.countDocuments(query);
 
-        res.json({
-            success: true,
-            data: orders,
-            pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
-                total,
-                pages: Math.ceil(total / limit)
-            }
-        });
-    } catch (error) {
-        console.error('Get all orders error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error fetching orders',
-            message: error.message
-        });
+            res.json({
+                success: true,
+                data: orders,
+                pagination: {
+                    page: parseInt(page),
+                    limit: parseInt(limit),
+                    total,
+                    pages: Math.ceil(total / limit)
+                }
+            });
+        } catch (error) {
+            console.error('Get all orders error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error fetching orders',
+                message: error.message
+            });
+        }
     }
-}
 
     /**
      * Get seller orders
@@ -595,44 +568,44 @@ res.json({
      * Requires seller role
      */
     async getSellerOrders(req, res) {
-    try {
-        const SellerProfile = require('../models/SellerProfile');
-        const Product = require('../models/Product');
+        try {
+            const SellerProfile = require('../models/SellerProfile');
+            const Product = require('../models/Product');
 
-        // Get seller profile
-        const sellerProfile = await SellerProfile.findOne({ userId: req.user.userId });
+            // Get seller profile
+            const sellerProfile = await SellerProfile.findOne({ userId: req.user.userId });
 
-        if (!sellerProfile) {
-            return res.status(404).json({
+            if (!sellerProfile) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Seller profile not found'
+                });
+            }
+
+            // Get all products by this seller
+            const sellerProducts = await Product.find({ sellerId: sellerProfile._id });
+            const sellerProductIds = sellerProducts.map(p => p.id);
+
+            // Find orders containing seller's products
+            const orders = await Order.find({
+                'items.productId': { $in: sellerProductIds }
+            })
+                .populate('userId', 'username email')
+                .sort({ createdAt: -1 });
+
+            res.json({
+                success: true,
+                data: orders
+            });
+        } catch (error) {
+            console.error('Get seller orders error:', error);
+            res.status(500).json({
                 success: false,
-                error: 'Seller profile not found'
+                error: 'Error fetching seller orders',
+                message: error.message
             });
         }
-
-        // Get all products by this seller
-        const sellerProducts = await Product.find({ sellerId: sellerProfile._id });
-        const sellerProductIds = sellerProducts.map(p => p.id);
-
-        // Find orders containing seller's products
-        const orders = await Order.find({
-            'items.productId': { $in: sellerProductIds }
-        })
-            .populate('userId', 'username email')
-            .sort({ createdAt: -1 });
-
-        res.json({
-            success: true,
-            data: orders
-        });
-    } catch (error) {
-        console.error('Get seller orders error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error fetching seller orders',
-            message: error.message
-        });
     }
-}
 
     /**
      * Update order status (Role-based access control)
@@ -645,119 +618,119 @@ res.json({
      * - Delivery: Can update delivery status only for assigned orders
      */
     async updateOrderStatus(req, res) {
-    try {
-        const { orderId } = req.params;
-        const { status, note } = req.body;
-        const userRole = req.user.role;
+        try {
+            const { orderId } = req.params;
+            const { status, note } = req.body;
+            const userRole = req.user.role;
 
-        const order = await Order.findById(orderId);
+            const order = await Order.findById(orderId);
 
-        if (!order) {
-            return res.status(404).json({
+            if (!order) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Order not found'
+                });
+            }
+
+            // Role-based permission checks
+            if (userRole === 'seller') {
+                // Seller can only update orders containing their products
+                const SellerProfile = require('../models/SellerProfile');
+                const Product = require('../models/Product');
+
+                const sellerProfile = await SellerProfile.findOne({ userId: req.user.userId });
+                if (!sellerProfile) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'Seller profile not found'
+                    });
+                }
+
+                const sellerProducts = await Product.find({ sellerId: sellerProfile._id });
+                const sellerProductIds = sellerProducts.map(p => p.id);
+
+                const hasSellerProduct = order.items.some(item =>
+                    sellerProductIds.includes(item.productId)
+                );
+
+                if (!hasSellerProduct) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'Access denied - order does not contain your products'
+                    });
+                }
+
+                // Sellers can only update to specific statuses
+                const allowedStatuses = ['processing', 'shipped'];
+                if (!allowedStatuses.includes(status)) {
+                    return res.status(403).json({
+                        success: false,
+                        error: `Sellers can only update status to: ${allowedStatuses.join(', ')}`
+                    });
+                }
+            } else if (userRole === 'delivery') {
+                // Delivery staff can only update assigned deliveries
+                if (!order.deliveryStaffId || order.deliveryStaffId.toString() !== req.user.userId) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'Access denied - delivery not assigned to you'
+                    });
+                }
+
+                // Delivery staff can only update to delivery-related statuses
+                const allowedStatuses = ['shipped', 'delivered'];
+                if (!allowedStatuses.includes(status)) {
+                    return res.status(403).json({
+                        success: false,
+                        error: `Delivery staff can only update status to: ${allowedStatuses.join(', ')}`
+                    });
+                }
+            }
+            // Admin has no restrictions
+
+            // Update order status
+            order.orderStatus = status;
+            order.statusHistory.push({
+                status,
+                timestamp: Date.now(),
+                note: note || `Status updated to ${status}`,
+                updatedBy: req.user.userId
+            });
+
+            if (status === 'delivered') {
+                order.actualDeliveryDate = Date.now();
+            }
+
+            await order.save();
+
+            // Send email notification based on status
+            const user = await AuthUser.findById(order.userId);
+            if (user && user.email) {
+                if (status === 'shipped') {
+                    EmailService.sendOrderShippedEmail(user.email, order)
+                        .catch(err => console.error('Error sending shipped email:', err));
+                    await NotificationService.notifyOrderShipped(order._id);
+                } else if (status === 'delivered') {
+                    EmailService.sendOrderDeliveredEmail(user.email, order)
+                        .catch(err => console.error('Error sending delivered email:', err));
+                    await NotificationService.notifyOrderDelivered(order._id);
+                }
+            }
+
+            res.json({
+                success: true,
+                message: 'Order status updated successfully',
+                data: order
+            });
+        } catch (error) {
+            console.error('Update order status error:', error);
+            res.status(500).json({
                 success: false,
-                error: 'Order not found'
+                error: 'Error updating order status',
+                message: error.message
             });
         }
-
-        // Role-based permission checks
-        if (userRole === 'seller') {
-            // Seller can only update orders containing their products
-            const SellerProfile = require('../models/SellerProfile');
-            const Product = require('../models/Product');
-
-            const sellerProfile = await SellerProfile.findOne({ userId: req.user.userId });
-            if (!sellerProfile) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Seller profile not found'
-                });
-            }
-
-            const sellerProducts = await Product.find({ sellerId: sellerProfile._id });
-            const sellerProductIds = sellerProducts.map(p => p.id);
-
-            const hasSellerProduct = order.items.some(item =>
-                sellerProductIds.includes(item.productId)
-            );
-
-            if (!hasSellerProduct) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Access denied - order does not contain your products'
-                });
-            }
-
-            // Sellers can only update to specific statuses
-            const allowedStatuses = ['processing', 'shipped'];
-            if (!allowedStatuses.includes(status)) {
-                return res.status(403).json({
-                    success: false,
-                    error: `Sellers can only update status to: ${allowedStatuses.join(', ')}`
-                });
-            }
-        } else if (userRole === 'delivery') {
-            // Delivery staff can only update assigned deliveries
-            if (!order.deliveryStaffId || order.deliveryStaffId.toString() !== req.user.userId) {
-                return res.status(403).json({
-                    success: false,
-                    error: 'Access denied - delivery not assigned to you'
-                });
-            }
-
-            // Delivery staff can only update to delivery-related statuses
-            const allowedStatuses = ['shipped', 'delivered'];
-            if (!allowedStatuses.includes(status)) {
-                return res.status(403).json({
-                    success: false,
-                    error: `Delivery staff can only update status to: ${allowedStatuses.join(', ')}`
-                });
-            }
-        }
-        // Admin has no restrictions
-
-        // Update order status
-        order.orderStatus = status;
-        order.statusHistory.push({
-            status,
-            timestamp: Date.now(),
-            note: note || `Status updated to ${status}`,
-            updatedBy: req.user.userId
-        });
-
-        if (status === 'delivered') {
-            order.actualDeliveryDate = Date.now();
-        }
-
-        await order.save();
-
-        // Send email notification based on status
-        const user = await AuthUser.findById(order.userId);
-        if (user && user.email) {
-            if (status === 'shipped') {
-                EmailService.sendOrderShippedEmail(user.email, order)
-                    .catch(err => console.error('Error sending shipped email:', err));
-                await NotificationService.notifyOrderShipped(order._id);
-            } else if (status === 'delivered') {
-                EmailService.sendOrderDeliveredEmail(user.email, order)
-                    .catch(err => console.error('Error sending delivered email:', err));
-                await NotificationService.notifyOrderDelivered(order._id);
-            }
-        }
-
-        res.json({
-            success: true,
-            message: 'Order status updated successfully',
-            data: order
-        });
-    } catch (error) {
-        console.error('Update order status error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error updating order status',
-            message: error.message
-        });
     }
-}
 }
 
 module.exports = new OrderController();
