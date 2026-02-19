@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test - Products</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .product-card {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .product-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 E-Commerce API Test</h1>
+
+    <div id="status" class="status info">
+        Click "Test API" to check if backend is working
+    </div>
+
+    <div>
+        <button onclick="testAPI()">Test API</button>
+        <button onclick="testCORS()">Test CORS</button>
+        <button onclick="clearResults()">Clear</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+
+        function updateStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        function displayResults(title, data) {
+            const resultsDiv = document.getElementById('results');
+            const section = document.createElement('div');
+            section.innerHTML = `
+                <h2>${title}</h2>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            resultsDiv.appendChild(section);
+        }
+
+        function displayProducts(products) {
+            const resultsDiv = document.getElementById('results');
+            const grid = document.createElement('div');
+            grid.className = 'product-grid';
+
+            products.forEach(product => {
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.innerHTML = `
+                    <h3>${product.name}</h3>
+                    <p>ID: ${product.id}</p>
+                    <p>Price: $${product.new_price}</p>
+                    <p>Category: ${product.category}</p>
+                    <p>Image: ${product.image}</p>
+                    <p>Approved: ${product.isApproved ? '✅' : '❌'}</p>
+                `;
+                grid.appendChild(card);
+            });
+
+            resultsDiv.appendChild(grid);
+        }
+
+        async function testAPI() {
+            updateStatus('Testing API...', 'info');
+            clearResults();
+
+            try {
+                console.log('Fetching from:', `${API_URL}/products`);
+
+                const response = await fetch(`${API_URL}/products`);
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Response data:', data);
+
+                if (data.success && data.data && data.data.length > 0) {
+                    updateStatus(`✅ SUCCESS! Received ${data.count} products`, 'success');
+                    displayResults('API Response', {
+                        success: data.success,
+                        count: data.count,
+                        pagination: data.pagination
+                    });
+                    displayProducts(data.data);
+                } else {
+                    updateStatus('⚠️ API returned no products', 'error');
+                    displayResults('API Response', data);
+                }
+
+            } catch (error) {
+                console.error('API Test Error:', error);
+                updateStatus(`❌ ERROR: ${error.message}`, 'error');
+                displayResults('Error Details', {
+                    message: error.message,
+                    stack: error.stack
+                });
+            }
+        }
+
+        async function testCORS() {
+            updateStatus('Testing CORS...', 'info');
+            clearResults();
+
+            try {
+                const response = await fetch(`${API_URL}/products`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Credentials': response.headers.get('Access-Control-Allow-Credentials'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods')
+                };
+
+                console.log('CORS Headers:', corsHeaders);
+
+                if (response.ok) {
+                    updateStatus('✅ CORS is working correctly', 'success');
+                    displayResults('CORS Headers', corsHeaders);
+                } else {
+                    updateStatus('⚠️ CORS might have issues', 'error');
+                    displayResults('Response', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        headers: corsHeaders
+                    });
+                }
+
+            } catch (error) {
+                console.error('CORS Test Error:', error);
+                updateStatus(`❌ CORS ERROR: ${error.message}`, 'error');
+                displayResults('Error', {
+                    message: error.message,
+                    note: 'This might be a CORS issue. Check browser console for details.'
+                });
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        // Auto-test on page load
+        window.addEventListener('load', () => {
+            console.log('Page loaded. API URL:', API_URL);
+            console.log('Click "Test API" button to start testing');
+        });
+    </script>
+</body>
+
+</html>
